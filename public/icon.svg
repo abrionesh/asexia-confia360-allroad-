@@ -1,0 +1,80 @@
+<svg width="512" height="512" viewBox="0 0 500 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="asexiaOuterRing" x1="0.1" y1="0.9" x2="0.9" y2="0.1">
+      <stop offset="0%" stop-color="#003B7A" />
+      <stop offset="35%" stop-color="#0284C7" />
+      <stop offset="65%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#84CC16" />
+    </linearGradient>
+
+    <radialGradient id="asexiaInnerBg" cx="45%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="85%" stop-color="#F1F5F9" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </radialGradient>
+
+    <linearGradient id="asexiaBlueGrad" x1="0.2" y1="0.1" x2="0.8" y2="0.9">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="40%" stop-color="#0369A1" />
+      <stop offset="100%" stop-color="#003875" />
+    </linearGradient>
+
+    <linearGradient id="asexiaBlueDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#002855" />
+      <stop offset="100%" stop-color="#001833" />
+    </linearGradient>
+
+    <linearGradient id="asexiaGreenGrad" x1="0" y1="0.3" x2="1" y2="0.7">
+      <stop offset="0%" stop-color="#22C55E" />
+      <stop offset="60%" stop-color="#4ADE80" />
+      <stop offset="100%" stop-color="#84CC16" />
+    </linearGradient>
+
+    <linearGradient id="asexiaGreenDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#15803D" />
+      <stop offset="100%" stop-color="#166534" />
+    </linearGradient>
+
+    <filter id="asexiaDropShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="2" dy="5" stdDeviation="6" floodColor="#001E3D" floodOpacity="0.28" />
+    </filter>
+  </defs>
+
+  <!-- Outer Gradient Ring -->
+  <circle cx="250" cy="250" r="236" fill="url(#asexiaOuterRing)" />
+  <circle cx="250" cy="250" r="222" fill="#002D5E" opacity="0.3" />
+
+  <!-- Inner White Luminous Base -->
+  <circle cx="250" cy="250" r="218" fill="url(#asexiaInnerBg)" />
+  <path d="M 60 220 A 210 210 0 0 1 440 220 A 200 180 0 0 0 60 220 Z" fill="#FFFFFF" opacity="0.4" />
+
+  <!-- 3D Ribbon Letter "A" -->
+  <g filter="url(#asexiaDropShadow)">
+    <path
+      d="M 70 360 L 165 360 L 260 170 L 310 230 L 365 230 L 265 100 C 255 88 238 88 228 100 L 70 360 Z"
+      fill="url(#asexiaBlueGrad)"
+    />
+    <path
+      d="M 235 96 C 246 88 260 92 268 104 L 365 230 L 318 230 L 248 135 C 242 125 235 110 235 96 Z"
+      fill="url(#asexiaBlueDark)"
+      opacity="0.9"
+    />
+    <path
+      d="M 310 300 L 390 300 L 425 360 L 340 360 Z"
+      fill="url(#asexiaBlueGrad)"
+    />
+    <path
+      d="M 310 300 L 390 300 L 375 320 L 310 320 Z"
+      fill="url(#asexiaBlueDark)"
+      opacity="0.4"
+    />
+    <path
+      d="M 195 292 C 220 236 295 236 415 236 C 385 270 320 292 195 292 Z"
+      fill="url(#asexiaGreenGrad)"
+    />
+    <path
+      d="M 305 292 C 360 292 410 270 415 236 C 405 285 365 300 305 292 Z"
+      fill="url(#asexiaGreenDark)"
+    />
+  </g>
+</svg>

@@ -1,0 +1,8 @@
+{
+  "name": "Asexia - Impulso Digital & IA para PYMEs",
+  "description": "Plataforma PWA interactiva con efectos 3D, asistente IA inteligente, sistema de reservas integrado y panel de administración en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

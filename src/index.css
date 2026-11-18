@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --asexia-blue-deep: #001833;
+    --asexia-blue-navy: #002855;
+    --asexia-blue-royal: #003B7A;
+    --asexia-blue-sapphire: #0284C7;
+    --asexia-green-emerald: #10B981;
+    --asexia-green-leaf: #22C55E;
+    --asexia-green-lime: #84CC16;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  /* Smooth theme transitions */
+  body {
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+.font-handwriting {
+  font-family: 'Caveat', cursive;
+}
+
+/* Corporate Logo Colors extracted from Asexia Ribbon Emblem */
+.bg-asexia-night-bg {
+  background-color: #001428;
+}
+
+.bg-asexia-night-surface {
+  background-color: #001E3D;
+}
+
+.bg-asexia-night-elevated {
+  background-color: #002855;
+}
+
+.border-asexia-night {
+  border-color: rgba(2, 132, 199, 0.22);
+}
+
+.border-asexia-emerald {
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+/* Custom 3D perspectives */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.perspective-1200 {
+  perspective: 1200px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-slow,
+  .animate-float-fast,
+  .animate-pulse-glow,
+  .animate-radar,
+  .animate-flow-dash,
+  .animate-scanline {
+    animation: none !important;
+  }
+}
+
+/* Glassmorphism helpers tuned for corporate navy and crisp day */
+.glass-panel-night {
+  background: rgba(0, 24, 51, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(2, 132, 199, 0.2);
+}
+
+.glass-panel-day {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 40, 85, 0.1);
+}
+
+/* Brand Sapphire & Emerald Glows */
+.glow-asexia {
+  box-shadow: 0 0 45px -8px rgba(2, 132, 199, 0.35), 0 0 25px -5px rgba(34, 197, 94, 0.25);
+}
+
+.glow-blue {
+  box-shadow: 0 0 40px -10px rgba(2, 132, 199, 0.4);
+}
+
+.glow-green {
+  box-shadow: 0 0 40px -10px rgba(34, 197, 94, 0.4);
+}
+
+/* Dynamic Image Micro-Animations */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+@keyframes float-reverse {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(8px) rotate(-1deg);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes radar-sweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sound-wave {
+  0%, 100% {
+    height: 6px;
+  }
+  50% {
+    height: 28px;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-float-slow {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-float-fast {
+  animation: float-reverse 4s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.animate-radar {
+  animation: radar-sweep 5s linear infinite;
+}
+
+.animate-wave-1 {
+  animation: sound-wave 1.1s ease-in-out infinite;
+}
+.animate-wave-2 {
+  animation: sound-wave 0.85s ease-in-out infinite 0.2s;
+}
+.animate-wave-3 {
+  animation: sound-wave 1.3s ease-in-out infinite 0.4s;
+}
+.animate-wave-4 {
+  animation: sound-wave 0.95s ease-in-out infinite 0.1s;
+}
+.animate-wave-5 {
+  animation: sound-wave 1.2s ease-in-out infinite 0.3s;
+}
+
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(300%);
+  }
+}
+
+.animate-flow-dash {
+  stroke-dasharray: 6 6;
+  animation: flow-dash 1.6s linear infinite;
+}
+
+.animate-scanline {
+  animation: scanline 4s ease-in-out infinite;
+}

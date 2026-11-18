@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Defensive fix for environments (iframes/proxies/extensions) where window.fetch has only a getter
+      (function() {
+        try {
+          var proto = window;
+          var desc = Object.getOwnPropertyDescriptor(proto, 'fetch');
+          if (!desc && Object.getPrototypeOf) {
+            var p = Object.getPrototypeOf(proto);
+            if (p) desc = Object.getOwnPropertyDescriptor(p, 'fetch');
+            if (!desc && p && Object.getPrototypeOf) {
+              var pp = Object.getPrototypeOf(p);
+              if (pp) desc = Object.getOwnPropertyDescriptor(pp, 'fetch');
+            }
+          }
+          if (desc && !desc.set) {
+            var _fetch = window.fetch ? window.fetch.bind(window) : null;
+            Object.defineProperty(window, 'fetch', {
+              get: function() {
+                return _fetch;
+              },
+              set: function(fn) {
+                _fetch = fn;
+              },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch (e) {
+          // ignore
+        }
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Asexia - Impulso Digital & IA para PYMEs</title>
+    <meta name="description" content="Tecnología práctica para pymes y negocios locales. Mejoramos tu presencia digital, conectamos la captación con el seguimiento comercial y automatizamos tareas." />
+    <meta property="og:title" content="Asexia - Impulso Digital & IA para PYMEs" />
+    <meta property="og:description" content="Tecnología práctica para pymes y negocios locales. Mejoramos tu presencia digital, conectamos la captación con el seguimiento comercial y automatizamos tareas." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0F172A" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Asexia" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Caveat:wght@600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
