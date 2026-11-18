@@ -63,7 +63,7 @@ export const TestimonialsSection: React.FC = () => {
   return (
     <section
       id="testimonios"
-      className={`py-12 sm:py-20 relative overflow-hidden border-t transition-colors duration-300 ${
+      className={`scroll-mt-24 py-12 sm:py-20 relative overflow-hidden border-t transition-colors duration-300 ${
         isDark
           ? 'bg-[#001428] border-[#0284C7]/20 text-slate-100'
           : 'bg-slate-50 border-slate-200 text-slate-900'

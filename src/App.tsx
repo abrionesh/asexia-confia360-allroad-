@@ -44,7 +44,18 @@ import { AdminPanelModal } from './components/AdminPanelModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AsexiaLogo } from './components/AsexiaLogo';
 import { RoiCalculatorSection, RoiSubmissionContext } from './components/RoiCalculatorSection';
-import { RoiConfig, cloneDefaultRoiConfig } from './types/roi';
+import { ConfIA360DiagnosticSection } from './components/ConfIA360DiagnosticSection';
+import {
+  RoiConfig,
+  RoiSectorId,
+  CompanySizeId,
+  RoiUserInputs,
+  RoiCalculationResult,
+  SECTOR_ORDER,
+  COMPANY_SIZE_ORDER,
+  cloneDefaultRoiConfig,
+} from './types/roi';
+import { LeadProfile } from './types/confia360';
 import { DemoSectorId } from './components/QuickBookingDemoPanel';
 
 function MainApp() {
@@ -60,7 +71,27 @@ function MainApp() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [demoInitialSector, setDemoInitialSector] = useState<DemoSectorId | undefined>(undefined);
   const [roiConfig, setRoiConfig] = useState<RoiConfig>(() => cloneDefaultRoiConfig());
+  const [leadProfile, setLeadProfile] = useState<LeadProfile>({
+    name: '',
+    companyName: '',
+    sectorId: 'clinicas',
+    postalCode: '',
+    phone: '',
+    email: '',
+    companySizeId: 'micro',
+  });
+  const [roiSnapshot, setRoiSnapshot] = useState<{
+    inputs: RoiUserInputs;
+    results: RoiCalculationResult;
+  } | null>(null);
+  const [fromCaptaGlobal, setFromCaptaGlobal] = useState(false);
+  const [crmRefreshTrigger, setCrmRefreshTrigger] = useState(0);
   const heroShowcaseRef = useRef<HTMLDivElement>(null);
+
+  const handleJumpToDiagnostic = () => {
+    const target = document.getElementById('diagnostico-confia360');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const handleToggleDemoMode = () => {
     setIsDemoMode((prev) => {
@@ -145,6 +176,55 @@ function MainApp() {
     return () => {
       active = false;
     };
+  }, []);
+
+  // Hydrate lead profile automatically when arriving from CaptaGlobal prefilled URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const name = params.get('nombre') || params.get('name') || '';
+    const companyName = params.get('empresa') || params.get('company') || params.get('companyName') || '';
+    const rawSector = (params.get('sector') || params.get('sectorId') || '').toLowerCase();
+    const postalCode = params.get('cp') || params.get('codigoPostal') || params.get('postalCode') || '';
+    const phone = params.get('telefono') || params.get('phone') || '';
+    const email = params.get('email') || params.get('correo') || '';
+    const rawSize = (params.get('tamano') || params.get('companySizeId') || '').toLowerCase();
+    const sourceParam = (params.get('fuente') || params.get('source') || '').toLowerCase();
+    const targetParam = (params.get('destino') || params.get('target') || '').toLowerCase();
+
+    if (name || companyName || email || phone || sourceParam === 'captaglobal') {
+      const matchedSector: RoiSectorId = SECTOR_ORDER.includes(rawSector as RoiSectorId)
+        ? (rawSector as RoiSectorId)
+        : rawSector.includes('restaur') || rawSector.includes('hostel')
+        ? 'restauracion'
+        : rawSector.includes('inmobili')
+        ? 'inmobiliarias'
+        : rawSector.includes('comerc') || rawSector.includes('estet')
+        ? 'comercios'
+        : rawSector.includes('servic') || rawSector.includes('despach')
+        ? 'servicios'
+        : 'clinicas';
+
+      const matchedSize: CompanySizeId = COMPANY_SIZE_ORDER.includes(rawSize as CompanySizeId)
+        ? (rawSize as CompanySizeId)
+        : 'micro';
+
+      setLeadProfile((prev) => ({
+        name: name || prev.name,
+        companyName: companyName || prev.companyName,
+        sectorId: matchedSector,
+        postalCode: postalCode || prev.postalCode,
+        phone: phone || prev.phone,
+        email: email || prev.email,
+        companySizeId: matchedSize,
+      }));
+      setFromCaptaGlobal(true);
+
+      const scrollTargetId =
+        targetParam === 'roi' ? 'calculadora-roi' : 'diagnostico-confia360';
+      setTimeout(() => {
+        document.getElementById(scrollTargetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 250);
+    }
   }, []);
 
   const handleOpenBooking = (planName?: string, sector?: string, notes?: string) => {
@@ -289,15 +369,18 @@ function MainApp() {
 
   return (
     <div
-      className={`min-h-screen overflow-x-hidden flex flex-col relative transition-colors duration-300 selection:bg-emerald-500 selection:text-white ${
+      className={`min-h-screen overflow-x-clip flex flex-col relative transition-colors duration-300 selection:bg-emerald-500 selection:text-white ${
         isDark ? 'bg-[#001428] text-slate-100' : 'bg-slate-50 text-slate-900'
       }`}
     >
       {/* Offline Status Bar */}
       <OfflineIndicator />
 
-      {/* Global Clean Navbar (Public navigation: Soluciones, Cómo trabajamos, Casos y demos, Contacto + Diagnóstico gratuito) */}
+      {/* Global Permanent Fixed Navbar */}
       <Navbar onOpenBooking={() => handleOpenBooking('Diagnóstico gratuito')} />
+
+      {/* Spacer matching fixed navbar height so hero stays unobstructed */}
+      <div className="h-16 sm:h-20 shrink-0" aria-hidden="true" />
 
       {/* MAIN CONTENT */}
       <main className="flex-1">
@@ -548,7 +631,7 @@ function MainApp() {
         {/* ===================== LAS 4 LÍNEAS COMERCIALES (SOLUCIONES) ===================== */}
         <section
           id="soluciones"
-          className={`py-12 sm:py-20 border-t transition-colors duration-300 ${
+          className={`scroll-mt-24 py-12 sm:py-20 border-t transition-colors duration-300 ${
             isDark ? 'bg-[#001428] border-[#0284C7]/20' : 'bg-white border-slate-200'
           }`}
         >
@@ -677,7 +760,7 @@ function MainApp() {
                     </div>
 
                     {/* 4. Llamada a la acción */}
-                    <div className="pt-6">
+                    <div className="pt-6 space-y-2.5">
                       <button
                         onClick={() => handleOpenBooking(`Solución: ${sol.title}`)}
                         className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-emerald-500 hover:from-blue-500 hover:to-emerald-400 text-white font-extrabold text-xs sm:text-sm shadow-md shadow-emerald-500/20 transition cursor-pointer flex items-center justify-center gap-2"
@@ -685,6 +768,22 @@ function MainApp() {
                         <span>{sol.cta}</span>
                         <ArrowRight className="w-4 h-4" />
                       </button>
+
+                      {sol.id === 'captacion' && (
+                        <a
+                          href="https://asexia-confia360-captaglobal.grok.me"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`w-full py-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+                            isDark
+                              ? 'bg-[#001428] border-[#0284C7]/35 text-sky-400 hover:text-emerald-400'
+                              : 'bg-white border-slate-300 text-blue-700 hover:text-emerald-700'
+                          }`}
+                        >
+                          <span>Módulo nativo ConfIA360 CaptaGlobal</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
                     </div>
                   </div>
                 );
@@ -699,6 +798,25 @@ function MainApp() {
           onBookWithRoi={handleBookWithRoi}
           onTryDemoWithRoi={handleTryDemoWithRoi}
           onCompareWithRoi={handleCompareWithRoi}
+          leadProfile={leadProfile}
+          onLeadProfileChange={setLeadProfile}
+          fromCaptaGlobal={fromCaptaGlobal}
+          onRoiSnapshotChange={setRoiSnapshot}
+          onCrmSaved={() => setCrmRefreshTrigger((n) => n + 1)}
+          onJumpToDiagnostic={handleJumpToDiagnostic}
+        />
+
+        {/* ===================== DIAGNÓSTICO INTELIGENTE CONFIA360 MULTISECTOR ===================== */}
+        <ConfIA360DiagnosticSection
+          roiConfig={roiConfig}
+          leadProfile={leadProfile}
+          onLeadProfileChange={setLeadProfile}
+          fromCaptaGlobal={fromCaptaGlobal}
+          linkedRoiSnapshot={roiSnapshot}
+          onCrmSaved={() => setCrmRefreshTrigger((n) => n + 1)}
+          onOpenBookingWithDiagnostic={(summary) =>
+            handleOpenBooking(summary.plan, summary.sector, summary.notes)
+          }
         />
 
         {/* ===================== SECTORES: PUNTOS DE DOLOR Y SOLUCIONES ESPECÍFICAS ===================== */}
@@ -707,7 +825,7 @@ function MainApp() {
         {/* ===================== CÓMO TRABAJAMOS (PROCESO CLARO) ===================== */}
         <section
           id="como-trabajamos"
-          className={`py-12 sm:py-20 border-t transition-colors duration-300 ${
+          className={`scroll-mt-24 py-12 sm:py-20 border-t transition-colors duration-300 ${
             isDark ? 'bg-[#001833] border-[#0284C7]/20' : 'bg-slate-100/80 border-slate-200'
           }`}
         >
@@ -895,7 +1013,7 @@ function MainApp() {
         {/* ===================== CASOS Y DEMOS ===================== */}
         <section
           id="casos"
-          className={`py-12 sm:py-20 border-t transition-colors duration-300 ${
+          className={`scroll-mt-24 py-12 sm:py-20 border-t transition-colors duration-300 ${
             isDark ? 'bg-[#001833]/90 border-[#0284C7]/20' : 'bg-slate-50 border-slate-200'
           }`}
         >
@@ -989,7 +1107,7 @@ function MainApp() {
         {/* ===================== SECCIÓN DE CONTACTO & AGENDAMIENTO DIRECTO ===================== */}
         <section
           id="contacto-directo"
-          className={`py-16 border-t transition-colors duration-300 ${
+          className={`scroll-mt-24 py-16 border-t transition-colors duration-300 ${
             isDark ? 'bg-[#001428] border-[#0284C7]/20' : 'bg-white border-slate-200'
           }`}
         >
@@ -1309,6 +1427,7 @@ function MainApp() {
       <AdminPanelModal
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
+        refreshTrigger={crmRefreshTrigger}
         roiConfig={roiConfig}
         onRoiConfigUpdated={setRoiConfig}
       />

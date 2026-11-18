@@ -1,5 +1,5 @@
 import React from 'react';
-import { Phone, Mail, Globe, Calendar, ArrowRight, MessageSquare, Lock } from 'lucide-react';
+import { Phone, Mail, Globe, Calendar, ArrowRight, MessageSquare, Lock, ExternalLink } from 'lucide-react';
 import { AsexiaLogo } from './AsexiaLogo';
 import { useTheme } from '../context/ThemeContext';
 
@@ -208,9 +208,22 @@ export const Footer: React.FC<FooterProps> = ({ onOpenBooking, onOpenAdmin }) =>
               }`}
             >
               <li><a href="#soluciones" className="hover:text-emerald-500 transition">Soluciones</a></li>
+              <li><a href="#calculadora-roi" className="hover:text-emerald-500 transition">Calculadora ROI</a></li>
+              <li><a href="#diagnostico-confia360" className="hover:text-emerald-500 transition font-semibold text-emerald-500">Diagnóstico ConfIA360</a></li>
               <li><a href="#sectores" className="hover:text-emerald-500 transition">Sectores</a></li>
               <li><a href="#como-trabajamos" className="hover:text-emerald-500 transition">Cómo trabajamos</a></li>
               <li><a href="#casos" className="hover:text-emerald-500 transition">Casos y demos</a></li>
+              <li>
+                <a
+                  href="https://asexia-confia360-captaglobal.grok.me"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-emerald-500 transition inline-flex items-center gap-1 font-medium text-sky-500"
+                >
+                  <span>ConfIA360 CaptaGlobal</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </li>
               <li><a href="#contacto" className="hover:text-emerald-500 transition">Contacto y reservas</a></li>
             </ul>
           </div>

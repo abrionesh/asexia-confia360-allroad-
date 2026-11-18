@@ -352,7 +352,7 @@ export const SectorSolutionsSection: React.FC<SectorSolutionsSectionProps> = ({
   return (
     <section
       id="sectores"
-      className={`py-12 sm:py-20 border-t transition-colors duration-300 ${
+      className={`scroll-mt-24 py-12 sm:py-20 border-t transition-colors duration-300 ${
         isDark ? 'bg-[#001833]/90 border-[#0284C7]/20' : 'bg-slate-50 border-slate-200'
       }`}
     >

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Sparkles,
   XCircle,
@@ -17,49 +17,36 @@ export const BeforeAfterSlider: React.FC = () => {
   const { isDark } = useTheme();
   const [sliderPosition, setSliderPosition] = useState(50);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const [mobileView, setMobileView] = useState<MobileViewMode>('both');
   const [beforeImgError, setBeforeImgError] = useState(false);
   const [afterImgError, setAfterImgError] = useState(false);
 
-  // Keep clipped layer inner width synced to outer container width so text never squishes
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const updateWidth = () => {
-      setContainerWidth(el.clientWidth);
-    };
-    updateWidth();
-
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(el);
-    window.addEventListener('resize', updateWidth);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', updateWidth);
-    };
-  }, []);
-
   const handleMove = (clientX: number) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
     const x = clientX - rect.left;
     const percentage = Math.max(5, Math.min(95, (x / rect.width) * 100));
     setSliderPosition(percentage);
   };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length > 0) {
-      handleMove(e.touches[0].clientX);
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    handleMove(e.clientX);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDragging || e.buttons === 1) {
+      handleMove(e.clientX);
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging || e.buttons === 1) {
-      handleMove(e.clientX);
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDragging(false);
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
   };
 
@@ -324,11 +311,11 @@ export const BeforeAfterSlider: React.FC = () => {
         {/* Comparison Slider Container */}
         <div
           ref={containerRef}
-          onMouseDown={() => setIsDragging(true)}
-          onMouseUp={() => setIsDragging(false)}
-          onMouseLeave={() => setIsDragging(false)}
-          onMouseMove={handleMouseMove}
-          onTouchMove={handleTouchMove}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          style={{ touchAction: 'pan-y' }}
           className="relative w-full h-[460px] rounded-3xl overflow-hidden border border-slate-700/80 shadow-2xl select-none cursor-ew-resize bg-slate-950 group"
         >
           {/* BASE RIGHT LAYER: 2. DESPUÉS CON ASEXIA */}
@@ -354,7 +341,7 @@ export const BeforeAfterSlider: React.FC = () => {
                 </span>
               </div>
 
-              <div className="max-w-[46%] lg:max-w-md ml-auto text-right space-y-3">
+              <div className="max-w-[45%] lg:max-w-md ml-auto text-right space-y-3">
                 <div className="inline-block px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 backdrop-blur-md">
                   ✓ Negocio conectado 24/7
                 </div>
@@ -403,13 +390,10 @@ export const BeforeAfterSlider: React.FC = () => {
 
           {/* LEFT CLIPPABLE LAYER: 1. ANTES (SITUACIÓN INICIAL) */}
           <div
-            style={{ width: `${sliderPosition}%` }}
-            className="absolute inset-y-0 left-0 overflow-hidden bg-slate-950 border-r border-white/40 z-20"
+            style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
+            className="absolute inset-0 bg-slate-950 z-20 pointer-events-none"
           >
-            <div
-              style={{ width: containerWidth ? `${containerWidth}px` : '100%' }}
-              className="relative h-full bg-gradient-to-br from-slate-950 via-rose-950/35 to-slate-900"
-            >
+            <div className="relative w-full h-full bg-gradient-to-br from-slate-950 via-rose-950/35 to-slate-900">
               {!beforeImgError && (
                 <img
                   src="https://images.unsplash.com/photo-1556740738-b6a63e27c4df?auto=format&fit=crop&w=1200&q=80"
@@ -431,7 +415,7 @@ export const BeforeAfterSlider: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="max-w-[46%] lg:max-w-md text-left space-y-3">
+                <div className="max-w-[45%] lg:max-w-md text-left space-y-3">
                   <div className="inline-block px-3 py-1 rounded-lg bg-rose-500/20 text-rose-300 text-xs font-bold border border-rose-500/30 backdrop-blur-md">
                     Pérdida continua de clientes
                   </div>

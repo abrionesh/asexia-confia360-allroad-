@@ -10,7 +10,8 @@ import {
   Stethoscope,
   ShoppingBag,
   Home,
-  ArrowRight
+  ArrowRight,
+  ExternalLink
 } from 'lucide-react';
 import { AsexiaLogo } from './AsexiaLogo';
 import { ThemeToggle } from './ThemeToggle';
@@ -20,10 +21,20 @@ interface NavbarProps {
   onOpenBooking: () => void;
 }
 
+const SPY_SECTIONS = [
+  'soluciones',
+  'calculadora-roi',
+  'diagnostico-confia360',
+  'sectores',
+  'casos',
+  'contacto-directo',
+] as const;
+
 export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sectorsDropdownOpen, setSectorsDropdownOpen] = useState(false);
   const [mobileSectorsOpen, setMobileSectorsOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<string>('');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { isDark } = useTheme();
 
@@ -76,26 +87,73 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Scroll-Spy active section tracking for fixed header
+  useEffect(() => {
+    const updateActiveSection = () => {
+      const offset = 150;
+      let current = '';
+      for (const id of SPY_SECTIONS) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= offset && rect.bottom > offset) {
+          current = id;
+          break;
+        }
+      }
+      if (!current) {
+        for (const id of SPY_SECTIONS) {
+          const el = document.getElementById(id);
+          if (el && el.getBoundingClientRect().top <= offset) {
+            current = id;
+          }
+        }
+      }
+      setActiveSection(current);
+    };
+
+    updateActiveSection();
+    window.addEventListener('scroll', updateActiveSection, { passive: true });
+    return () => window.removeEventListener('scroll', updateActiveSection);
+  }, []);
+
   const handleSelectSector = (sectorId: string) => {
     setSectorsDropdownOpen(false);
     setMobileMenuOpen(false);
     window.dispatchEvent(new CustomEvent('select-sector', { detail: sectorId }));
   };
 
+  const navLinkClass = (sectionId: string, emphasize = false) => {
+    const isActive = activeSection === sectionId;
+    if (isActive) {
+      return isDark
+        ? 'text-emerald-400 border-b-2 border-emerald-400 py-1 whitespace-nowrap shrink-0 transition-colors'
+        : 'text-blue-700 border-b-2 border-blue-600 py-1 whitespace-nowrap shrink-0 transition-colors';
+    }
+    if (emphasize) {
+      return isDark
+        ? 'text-emerald-400 hover:text-emerald-300 border-b-2 border-transparent py-1 whitespace-nowrap shrink-0 transition-colors'
+        : 'text-emerald-700 hover:text-blue-600 border-b-2 border-transparent py-1 whitespace-nowrap shrink-0 transition-colors';
+    }
+    return isDark
+      ? 'text-slate-200 hover:text-emerald-400 border-b-2 border-transparent py-1 whitespace-nowrap shrink-0 transition-colors'
+      : 'text-slate-700 hover:text-blue-600 border-b-2 border-transparent py-1 whitespace-nowrap shrink-0 transition-colors';
+  };
+
   return (
     <header
-      className={`sticky top-0 z-40 w-full backdrop-blur-xl border-b transition-colors duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-40 w-full backdrop-blur-xl border-b transition-colors duration-300 ${
         isDark
-          ? 'bg-[#001428]/95 border-[#0284C7]/20 text-slate-100 shadow-[0_4px_20px_rgba(0,20,40,0.5)]'
+          ? 'bg-[#001428]/95 border-[#0284C7]/25 text-slate-100 shadow-[0_4px_24px_rgba(0,15,35,0.65)]'
           : 'bg-white/95 border-slate-200/90 text-slate-900 shadow-sm'
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+        <div className="flex items-center justify-between h-16 sm:h-20 gap-3">
           {/* Logo Asexia with Official Corporate Emblem */}
-          <a href="#" className="flex items-center group">
+          <a href="#" className="flex items-center group whitespace-nowrap shrink-0">
             <AsexiaLogo
-              size={44}
+              size={40}
               showText={true}
               textColor={isDark ? 'text-white' : 'text-[#001E3D]'}
               subtextColor={isDark ? 'text-slate-400' : 'text-slate-600'}
@@ -103,27 +161,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
           </a>
 
           {/* Desktop Nav Links */}
-          <nav className="hidden md:flex items-center gap-7 text-sm font-semibold">
-            <a
-              href="#soluciones"
-              className={`transition-colors py-1 ${
-                isDark ? 'text-slate-200 hover:text-emerald-400' : 'text-slate-700 hover:text-blue-600'
-              }`}
-            >
+          <nav className="hidden lg:flex items-center gap-5 text-sm font-semibold whitespace-nowrap">
+            <a href="#soluciones" className={navLinkClass('soluciones')}>
               Soluciones
             </a>
 
             {/* Sectores with Dropdown menu */}
-            <div className="relative" ref={dropdownRef}>
+            <div className="relative shrink-0" ref={dropdownRef}>
               <button
                 type="button"
                 onClick={() => setSectorsDropdownOpen(!sectorsDropdownOpen)}
                 onMouseEnter={() => setSectorsDropdownOpen(true)}
-                className={`flex items-center gap-1.5 py-1 transition-colors cursor-pointer ${
-                  isDark
-                    ? 'text-slate-200 hover:text-emerald-400'
-                    : 'text-slate-700 hover:text-blue-600'
-                }`}
+                className={`flex items-center gap-1.5 cursor-pointer ${navLinkClass('sectores')}`}
               >
                 <span>Sectores</span>
                 <ChevronDown
@@ -196,51 +245,40 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
               )}
             </div>
 
-            <a
-              href="#como-trabajamos"
-              className={`transition-colors py-1 ${
-                isDark ? 'text-slate-200 hover:text-emerald-400' : 'text-slate-700 hover:text-blue-600'
-              }`}
-            >
-              Cómo trabajamos
+            <a href="#calculadora-roi" className={navLinkClass('calculadora-roi')}>
+              Calculadora ROI
             </a>
 
-            <a
-              href="#casos"
-              className={`transition-colors py-1 ${
-                isDark ? 'text-slate-200 hover:text-emerald-400' : 'text-slate-700 hover:text-blue-600'
-              }`}
-            >
+            <a href="#diagnostico-confia360" className={navLinkClass('diagnostico-confia360', true)}>
+              Diagnóstico ConfIA360
+            </a>
+
+            <a href="#casos" className={navLinkClass('casos')}>
               Casos y demos
             </a>
 
-            <a
-              href="#contacto"
-              className={`transition-colors py-1 ${
-                isDark ? 'text-slate-200 hover:text-emerald-400' : 'text-slate-700 hover:text-blue-600'
-              }`}
-            >
+            <a href="#contacto-directo" className={navLinkClass('contacto-directo')}>
               Contacto
             </a>
           </nav>
 
           {/* Right Header CTAs: Theme Toggle & Primary Featured CTA */}
-          <div className="hidden sm:flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-3 shrink-0">
             {/* Single clean Day / Night Theme Switcher */}
             <ThemeToggle showDetails={false} />
 
             {/* Featured CTA: Diagnóstico gratuito */}
             <button
               onClick={onOpenBooking}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-sky-600 to-emerald-500 hover:from-blue-500 hover:to-emerald-400 text-white font-extrabold text-sm shadow-md shadow-emerald-500/20 transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+              className="flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-sky-600 to-emerald-500 hover:from-blue-500 hover:to-emerald-400 text-white font-extrabold text-sm shadow-md shadow-emerald-500/20 transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Calendar className="w-4 h-4 text-white" />
+              <Calendar className="w-4 h-4 text-white shrink-0" />
               <span>Diagnóstico gratuito</span>
             </button>
           </div>
 
           {/* Mobile Menu Button */}
-          <div className="flex items-center gap-2 md:hidden">
+          <div className="flex items-center gap-2 lg:hidden">
             <ThemeToggle compact />
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -260,7 +298,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div
-          className={`md:hidden border-b p-4 space-y-3 animate-in slide-in-from-top duration-200 ${
+          className={`lg:hidden border-b p-4 space-y-3 max-h-[calc(100vh-4rem)] overflow-y-auto animate-in slide-in-from-top duration-200 ${
             isDark ? 'bg-[#001E3D] border-[#0284C7]/30 text-white' : 'bg-white border-slate-200 shadow-xl'
           }`}
         >
@@ -333,7 +371,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
             </div>
 
             <a
-              href="#como-trabajamos"
+              href="#calculadora-roi"
               onClick={() => setMobileMenuOpen(false)}
               className={`block px-3 py-2 rounded-xl text-sm font-semibold transition ${
                 isDark
@@ -341,7 +379,19 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
                   : 'text-slate-800 hover:bg-slate-100 hover:text-blue-600'
               }`}
             >
-              Cómo trabajamos
+              Calculadora ROI
+            </a>
+
+            <a
+              href="#diagnostico-confia360"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`block px-3 py-2 rounded-xl text-sm font-bold transition ${
+                isDark
+                  ? 'text-emerald-400 hover:bg-[#002855]'
+                  : 'text-emerald-700 hover:bg-slate-100'
+              }`}
+            >
+              Diagnóstico ConfIA360 (10 áreas)
             </a>
 
             <a
@@ -357,7 +407,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
             </a>
 
             <a
-              href="#contacto"
+              href="#contacto-directo"
               onClick={() => setMobileMenuOpen(false)}
               className={`block px-3 py-2 rounded-xl text-sm font-semibold transition ${
                 isDark
@@ -384,6 +434,21 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenBooking }) => {
               <Calendar className="w-4 h-4" />
               <span>Diagnóstico gratuito</span>
             </button>
+
+            <a
+              href="https://asexia-confia360-captaglobal.grok.me"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border ${
+                isDark
+                  ? 'bg-[#001428] text-sky-400 border-[#0284C7]/35'
+                  : 'bg-sky-50 text-blue-700 border-sky-200'
+              }`}
+            >
+              <span>ConfIA360 CaptaGlobal</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
 
             <a
               href="tel:609735753"

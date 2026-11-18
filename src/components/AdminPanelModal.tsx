@@ -21,8 +21,10 @@ import {
   Save,
   RotateCcw,
   Sliders,
-  Star
+  Star,
+  Briefcase
 } from 'lucide-react';
+import { AdminCrmTab } from './AdminCrmTab';
 import { useTheme } from '../context/ThemeContext';
 import {
   RoiConfig,
@@ -70,7 +72,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onRoiConfigUpdated,
 }) => {
   const { isDark } = useTheme();
-  const [activeTab, setActiveTab] = useState<'bookings' | 'proposals' | 'analytics' | 'roi'>('bookings');
+  const [activeTab, setActiveTab] = useState<'crm' | 'bookings' | 'proposals' | 'analytics' | 'roi'>('crm');
   const [bookings, setBookings] = useState<any[]>([]);
   const [proposals, setProposals] = useState<any[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
@@ -293,7 +295,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-6 backdrop-blur-md animate-in fade-in duration-200">
       <div
-        className={`relative w-full max-w-5xl h-[90vh] rounded-3xl border p-5 sm:p-8 shadow-2xl flex flex-col overflow-hidden transition-colors duration-300 ${
+        className={`relative w-full max-w-6xl h-[90vh] rounded-3xl border p-5 sm:p-8 shadow-2xl flex flex-col overflow-hidden transition-colors duration-300 ${
           isDark
             ? 'bg-[#001428] border-[#0284C7]/30 text-slate-100 shadow-[0_20px_60px_rgba(0,10,30,0.85)]'
             : 'bg-white border-slate-200 text-slate-900 shadow-2xl'
@@ -429,6 +431,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           }`}
         >
           <button
+            onClick={() => setActiveTab('crm')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'crm'
+                ? 'bg-gradient-to-r from-blue-600 to-emerald-500 text-white shadow-md'
+                : isDark
+                ? 'text-slate-400 hover:text-white hover:bg-[#001E3D]'
+                : 'text-slate-600 hover:text-black hover:bg-slate-100'
+            }`}
+          >
+            <Briefcase className="w-4 h-4" />
+            <span>CRM 360º &amp; CaptaGlobal</span>
+          </button>
+          <button
             onClick={() => setActiveTab('bookings')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'bookings'
@@ -481,6 +496,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             <span>Calculadora ROI &amp; CTAs</span>
           </button>
         </div>
+
+        {/* TAB 0: CRM 360º UNIFICADO & CAPTAGLOBAL */}
+        {activeTab === 'crm' && (
+          <AdminCrmTab roiConfig={draftRoi} refreshSignal={refreshTrigger} />
+        )}
 
         {/* TAB 1: RESERVAS */}
         {activeTab === 'bookings' && (

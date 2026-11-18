@@ -24,8 +24,20 @@ import {
   Copy,
   Check,
   Download,
+  Save,
+  Compass,
+  X,
+  User,
+  Briefcase,
+  Phone,
+  Mail,
+  AlertTriangle,
 } from 'lucide-react';
+import {
+  LeadProfile,
+} from '../types/confia360';
 import { useTheme } from '../context/ThemeContext';
+import { InfoPopover } from './InfoPopover';
 import {
   RoiConfig,
   RoiSectorId,
@@ -56,6 +68,15 @@ interface RoiCalculatorSectionProps {
   onBookWithRoi: (context: RoiSubmissionContext) => void;
   onTryDemoWithRoi: (context: RoiSubmissionContext) => void;
   onCompareWithRoi: (context: RoiSubmissionContext) => void;
+  leadProfile?: LeadProfile;
+  onLeadProfileChange?: (next: LeadProfile) => void;
+  fromCaptaGlobal?: boolean;
+  onRoiSnapshotChange?: (snapshot: {
+    inputs: RoiUserInputs;
+    results: RoiCalculationResult;
+  }) => void;
+  onCrmSaved?: () => void;
+  onJumpToDiagnostic?: () => void;
 }
 
 const SECTOR_ICONS: Record<RoiSectorId, React.ComponentType<{ className?: string }>> = {
@@ -71,6 +92,12 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
   onBookWithRoi,
   onTryDemoWithRoi,
   onCompareWithRoi,
+  leadProfile,
+  onLeadProfileChange,
+  fromCaptaGlobal = false,
+  onRoiSnapshotChange,
+  onCrmSaved,
+  onJumpToDiagnostic,
 }) => {
   const { isDark } = useTheme();
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -89,6 +116,24 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
   const [isViewerHovered, setIsViewerHovered] = useState(false);
   const [isExploded3D, setIsExploded3D] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState(false);
+
+  // CRM 6-Field Capture Modal State
+  const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
+  const [pendingActionAfterCapture, setPendingActionAfterCapture] = useState<
+    'save' | 'download' | 'diagnostic'
+  >('save');
+  const [modalDraft, setModalDraft] = useState<LeadProfile>({
+    name: leadProfile?.name || '',
+    companyName: leadProfile?.companyName || '',
+    sectorId: leadProfile?.sectorId || initialSector.id,
+    postalCode: leadProfile?.postalCode || '',
+    phone: leadProfile?.phone || '',
+    email: leadProfile?.email || '',
+    companySizeId: leadProfile?.companySizeId || initialSizeId,
+  });
+  const [isSavingToCrm, setIsSavingToCrm] = useState(false);
+  const [crmSavedNotice, setCrmSavedNotice] = useState<string | null>(null);
+  const [crmErrorNotice, setCrmErrorNotice] = useState<string | null>(null);
 
   const currentSector = config.sectors[inputs.sectorId] || initialSector;
   const companySizesMap = config.companySizes || DEFAULT_ROI_CONFIG.companySizes;
@@ -126,11 +171,17 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
     if (!nextSector) return;
     setInputs(createInitialInputsForSector(nextSector, inputs.applyKitDigital, inputs.companySizeId));
     setHasManualEdits(false);
+    if (leadProfile && onLeadProfileChange && leadProfile.sectorId !== sectorId) {
+      onLeadProfileChange({ ...leadProfile, sectorId });
+    }
   };
 
   const handleSelectCompanySize = (companySizeId: CompanySizeId) => {
     setHasManualEdits(true);
     setInputs((prev) => ({ ...prev, companySizeId }));
+    if (leadProfile && onLeadProfileChange && leadProfile.companySizeId !== companySizeId) {
+      onLeadProfileChange({ ...leadProfile, companySizeId });
+    }
   };
 
   const handleSyncTeamToSize = () => {
@@ -159,6 +210,37 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
     () => calculateRoiResults(inputs, currentSector, config.globalRates, companySizesMap),
     [inputs, currentSector, config.globalRates, companySizesMap]
   );
+
+  // Sync external sector/size selection from ConfIA360 diagnostic if changed
+  useEffect(() => {
+    if (!leadProfile) return;
+    setInputs((prev) => {
+      if (
+        prev.sectorId === leadProfile.sectorId &&
+        prev.companySizeId === leadProfile.companySizeId
+      ) {
+        return prev;
+      }
+      const nextSec = config.sectors[leadProfile.sectorId] || currentSector;
+      if (!hasManualEdits && prev.sectorId !== leadProfile.sectorId) {
+        return createInitialInputsForSector(
+          nextSec,
+          prev.applyKitDigital,
+          leadProfile.companySizeId
+        );
+      }
+      return {
+        ...prev,
+        sectorId: leadProfile.sectorId,
+        companySizeId: leadProfile.companySizeId,
+      };
+    });
+  }, [leadProfile?.sectorId, leadProfile?.companySizeId]);
+
+  // Share live ROI snapshot upwards so ConfIA360 Diagnostic reflects current figures
+  useEffect(() => {
+    onRoiSnapshotChange?.({ inputs, results });
+  }, [inputs, results]);
 
   // Side-by-side results for Micro / Pequeña / Mediana comparison
   const comparisonBySize = useMemo(
@@ -225,12 +307,14 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
     }
   };
 
-  const handleDownloadReport = () => {
+  const triggerTxtDownload = (profile?: LeadProfile) => {
     const lines = [
-      'INFORME ESTIMADO DE RETORNO DE INVERSIÓN (ROI) — ASEXIA',
+      'INFORME ESTIMADO DE RETORNO DE INVERSIÓN (ROI) — ASEXIA | CONFIA360',
       '====================================================================',
       `Referencia geográfica: ${config.globalRates.locationLabel}`,
       `Fecha de simulación: ${new Date().toLocaleDateString('es-ES')}`,
+      profile?.name ? `Contacto: ${profile.name} · Empresa: ${profile.companyName} (CP ${profile.postalCode})` : '',
+      profile?.phone ? `Teléfono: ${profile.phone} · Email: ${profile.email}` : '',
       `Sector seleccionado: ${currentSector.name}`,
       `Tamaño de empresa: ${currentSizeProfile.label} (${currentSizeProfile.headcountRange})`,
       `Pesos aplicados: Tiempo ×${currentSizeProfile.timeSavingsWeight.toFixed(2)} | Captación ×${currentSizeProfile.leadRecoveryWeight.toFixed(2)} | Extra sector ×${currentSizeProfile.sectorExtraWeight.toFixed(2)} | Escala plan ×${currentSizeProfile.investmentMultiplier.toFixed(2)}`,
@@ -255,7 +339,7 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
       '',
       'Nota: Cifras orientativas basadas en medias del sector y parámetros configurados.',
       'Contacto Asexia: 609 735 753 · soyasexia@gmail.com',
-    ];
+    ].filter((line) => line !== '');
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -265,6 +349,108 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const hasCompleteLeadProfile = Boolean(
+    leadProfile?.name?.trim() &&
+      leadProfile?.companyName?.trim() &&
+      leadProfile?.postalCode?.trim() &&
+      leadProfile?.phone?.trim() &&
+      leadProfile?.email?.trim()
+  );
+
+  const saveRoiSimulationToCrm = async (
+    profile: LeadProfile,
+    afterAction: 'save' | 'download' | 'diagnostic'
+  ): Promise<boolean> => {
+    setIsSavingToCrm(true);
+    setCrmErrorNotice(null);
+    setCrmSavedNotice(null);
+    try {
+      const res = await fetch('/api/crm/intake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: profile.name.trim(),
+          companyName: profile.companyName.trim(),
+          sectorId: profile.sectorId || inputs.sectorId,
+          sectorLabel: config.sectors[profile.sectorId || inputs.sectorId]?.name || currentSector.name,
+          companySizeId: profile.companySizeId || inputs.companySizeId,
+          postalCode: profile.postalCode.trim(),
+          phone: profile.phone.trim(),
+          email: profile.email.trim(),
+          source: fromCaptaGlobal ? 'captaglobal' : 'roi-calculator',
+          roiInputs: {
+            ...inputs,
+            sectorId: profile.sectorId || inputs.sectorId,
+            companySizeId: profile.companySizeId || inputs.companySizeId,
+          },
+          deliverable:
+            afterAction === 'download'
+              ? {
+                  type: 'informe-txt',
+                  tier: 'base',
+                  channel: 'descarga',
+                  recipient: profile.email.trim(),
+                  summary: `Informe ROI (${results.annualNetBenefit.toLocaleString('es-ES')} €/año netos)`,
+                }
+              : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCrmErrorNotice(data?.error || 'No se pudo guardar en el CRM.');
+        return false;
+      }
+      onLeadProfileChange?.(profile);
+      onCrmSaved?.();
+      setCrmSavedNotice(
+        `Simulación guardada en CRM (#${data.opportunity?.id || 'CRM'}) para ${profile.companyName}${
+          data.autoSyncEnabled ? ' · Sincronización automática CaptaGlobal activada.' : '.'
+        }`
+      );
+      if (afterAction === 'download') {
+        triggerTxtDownload(profile);
+      } else if (afterAction === 'diagnostic') {
+        onJumpToDiagnostic?.();
+      }
+      return true;
+    } catch {
+      setCrmErrorNotice('Error de conexión al guardar la simulación.');
+      return false;
+    } finally {
+      setIsSavingToCrm(false);
+    }
+  };
+
+  const initiateRoiSaveOrDownload = (action: 'save' | 'download' | 'diagnostic') => {
+    if (hasCompleteLeadProfile && leadProfile) {
+      saveRoiSimulationToCrm(
+        {
+          ...leadProfile,
+          sectorId: inputs.sectorId,
+          companySizeId: inputs.companySizeId,
+        },
+        action
+      );
+      return;
+    }
+    setModalDraft({
+      name: leadProfile?.name || '',
+      companyName: leadProfile?.companyName || '',
+      sectorId: inputs.sectorId,
+      postalCode: leadProfile?.postalCode || '',
+      phone: leadProfile?.phone || '',
+      email: leadProfile?.email || '',
+      companySizeId: inputs.companySizeId,
+    });
+    setPendingActionAfterCapture(action);
+    setCrmErrorNotice(null);
+    setIsLeadModalOpen(true);
+  };
+
+  const handleDownloadReport = () => {
+    initiateRoiSaveOrDownload('download');
   };
 
   // 3D pointer parallax & glare tracking on desktop viewports
@@ -317,11 +503,13 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
         `• ROI anual estimado: ${results.roiPercent}% (${results.annualNetBenefit.toLocaleString('es-ES')} €/año netos)`,
         `Me gustaría comentarlo en una orientación breve.`,
       ].join('\n');
-      window.open(
-        `https://wa.me/34609735753?text=${encodeURIComponent(waMessage)}`,
-        '_blank',
-        'noopener,noreferrer'
-      );
+      const anchor = document.createElement('a');
+      anchor.href = `https://wa.me/34609735753?text=${encodeURIComponent(waMessage)}`;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
     }
   };
 
@@ -348,7 +536,7 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
   return (
     <section
       id="calculadora-roi"
-      className={`py-12 sm:py-20 border-t transition-colors duration-300 ${
+      className={`scroll-mt-24 py-12 sm:py-20 border-t transition-colors duration-300 ${
         isDark ? 'bg-[#001833]/85 border-[#0284C7]/20' : 'bg-slate-50 border-slate-200'
       }`}
     >
@@ -364,6 +552,15 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
               {config.globalRates.locationLabel}
             </span>
           </div>
+
+          {fromCaptaGlobal && leadProfile?.companyName && (
+            <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-500">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                Estudio vinculado con CaptaGlobal para <strong>{leadProfile.companyName}</strong>
+              </span>
+            </div>
+          )}
 
           <h2
             style={{ textWrap: 'balance' }}
@@ -464,6 +661,11 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
                   <span className="font-bold flex items-center gap-1.5">
                     <Building2 className="w-3.5 h-3.5 text-sky-500 shrink-0" />
                     <span>Tamaño de empresa</span>
+                    <InfoPopover
+                      title="Tamaño de empresa"
+                      meaning="Clasifica tu plantilla en Micro (1–9), Pequeña (10–49) o Mediana (50–249) según el estándar pyme."
+                      impact={`Aplica los multiplicadores configurados para tu escala: Tiempo ×${currentSizeProfile.timeSavingsWeight.toFixed(2)}, Captación ×${currentSizeProfile.leadRecoveryWeight.toFixed(2)}, Extra ×${currentSizeProfile.sectorExtraWeight.toFixed(2)} y Escala plan ×${currentSizeProfile.investmentMultiplier.toFixed(2)}.`}
+                    />
                   </span>
                   <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                     {currentSizeProfile.description}
@@ -555,11 +757,18 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2 text-xs">
-                    <label htmlFor="roi-team-size" className="font-semibold flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                      <span>Personas en gestión</span>
-                    </label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <label htmlFor="roi-team-size" className="font-semibold flex items-center gap-1.5 truncate">
+                        <Users className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span>Personas en gestión</span>
+                      </label>
+                      <InfoPopover
+                        title="Personas en gestión"
+                        meaning="Miembros del equipo que dedican parte de su jornada a responder consultas, agendar citas o tramitar documentación."
+                        impact="Contextualiza tu capacidad operativa y queda reflejado en el diagnóstico y comparativa de tu empresa."
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
                       <button
                         type="button"
                         onClick={handleSyncTeamToSize}
@@ -588,12 +797,20 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <label htmlFor="roi-hourly-cost" className="font-semibold flex items-center gap-1.5">
-                      <Euro className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                      <span>Coste/hora equipo</span>
-                    </label>
-                    <span className="font-mono tabular-nums font-bold text-sky-500">
+                  <div className="flex items-center justify-between text-xs gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <label htmlFor="roi-hourly-cost" className="font-semibold flex items-center gap-1.5 truncate">
+                        <Euro className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                        <span>Coste/hora equipo</span>
+                      </label>
+                      <InfoPopover
+                        title="Coste por hora del equipo"
+                        meaning="Coste laboral bruto por hora trabajada (salario más Seguridad Social) en tu sector y zona."
+                        impact="Multiplica directamente cada hora semanal liberada para convertir el tiempo recuperado en ahorro operativo mensual (€/mes)."
+                        align="right"
+                      />
+                    </div>
+                    <span className="font-mono tabular-nums font-bold text-sky-500 shrink-0">
                       {inputs.hourlyCost} €/h
                     </span>
                   </div>
@@ -613,9 +830,16 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
               {/* 2. Weekly Manual Hours: Attention/Calls/WhatsApp */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-xs">
-                  <label htmlFor="roi-comm-hours" className="font-semibold">
-                    Horas/semana en llamadas, WhatsApp y citas
-                  </label>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label htmlFor="roi-comm-hours" className="font-semibold truncate">
+                      Horas/semana en llamadas, WhatsApp y citas
+                    </label>
+                    <InfoPopover
+                      title="Horas en atención y citas"
+                      meaning="Tiempo semanal que tu equipo invierte contestando dudas frecuentes, dando precios básicos o cerrando citas manualmente."
+                      impact={`Se automatiza aproximadamente un ${Math.round(results.effectiveCommRate * 100)}% con flujos de WhatsApp y reserva directa, liberando horas productivas cada semana.`}
+                    />
+                  </div>
                   <span className="font-mono tabular-nums font-bold text-emerald-500 whitespace-nowrap shrink-0">
                     {inputs.commHoursPerWeek} h/sem
                   </span>
@@ -641,9 +865,16 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
               {/* 3. Weekly Manual Hours: Admin/Invoicing/Contracts */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-xs">
-                  <label htmlFor="roi-admin-hours" className="font-semibold">
-                    Horas/semana en facturas, papeleo y gestión
-                  </label>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label htmlFor="roi-admin-hours" className="font-semibold truncate">
+                      Horas/semana en facturas, papeleo y gestión
+                    </label>
+                    <InfoPopover
+                      title="Horas administrativas y de gestión"
+                      meaning="Tiempo dedicado a facturación, presupuestos, firmas digitales, escandallos, RGPD o registro manual de datos."
+                      impact={`Asexia reduce en torno al ${Math.round(results.effectiveAdminRate * 100)}% esta carga mecánica, sumando ahorro directo en horas y menos errores administrativos.`}
+                    />
+                  </div>
                   <span className="font-mono tabular-nums font-bold text-blue-500 whitespace-nowrap shrink-0">
                     {inputs.adminHoursPerWeek} h/sem
                   </span>
@@ -669,11 +900,18 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
               {/* 4. Missed Inquiries / No-Shows & Average Ticket */}
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <label htmlFor="roi-missed-leads" className="font-semibold">
-                      Consultas o citas perdidas/sem
-                    </label>
-                    <span className="font-mono tabular-nums font-bold text-amber-500">
+                  <div className="flex items-center justify-between text-xs gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <label htmlFor="roi-missed-leads" className="font-semibold truncate">
+                        Consultas o citas perdidas/sem
+                      </label>
+                      <InfoPopover
+                        title="Oportunidades o citas perdidas"
+                        meaning="Llamadas no atendidas en horas punta, mensajes sin seguimiento rápido o huecos vacíos por ausencias (no-shows)."
+                        impact={`Estimamos recuperar un ${Math.round(results.effectiveLeadRecoveryRate * 100)}% mediante respuesta 24/7 y recordatorios, multiplicado por una tasa de cierre conservadora del ${Math.round(currentSector.closingMultiplier * 100)}%.`}
+                      />
+                    </div>
+                    <span className="font-mono tabular-nums font-bold text-amber-500 shrink-0">
                       {inputs.missedLeadsPerWeek} / sem
                     </span>
                   </div>
@@ -690,11 +928,19 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <label htmlFor="roi-avg-ticket" className="font-semibold">
-                      Valor medio cliente (€)
-                    </label>
-                    <span className="font-mono tabular-nums font-bold text-emerald-500">
+                  <div className="flex items-center justify-between text-xs gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <label htmlFor="roi-avg-ticket" className="font-semibold truncate">
+                        Valor medio cliente (€)
+                      </label>
+                      <InfoPopover
+                        title="Valor medio por cliente"
+                        meaning="Importe promedio de un servicio, ticket de compra, tratamiento o comisión cerrada en tu actividad."
+                        impact="Determina el valor económico de cada consulta o cita recuperada, impulsando los ingresos adicionales mensuales y reduciendo el plazo de amortización."
+                        align="right"
+                      />
+                    </div>
+                    <span className="font-mono tabular-nums font-bold text-emerald-500 shrink-0">
                       {inputs.avgTicket.toLocaleString('es-ES')} €
                     </span>
                   </div>
@@ -714,9 +960,16 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
               {/* 5. Sector-Specific Direct Savings */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-xs">
-                  <label htmlFor="roi-extra-savings" className="font-semibold truncate">
-                    {currentSector.sectorExtraLabel}
-                  </label>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label htmlFor="roi-extra-savings" className="font-semibold truncate">
+                      {currentSector.sectorExtraLabel}
+                    </label>
+                    <InfoPopover
+                      title="Ahorro directo específico del sector"
+                      meaning="Costes recurrentes propios de tu actividad (comisiones externas, papel, mermas o desplazamientos improductivos) que se reducen al digitalizar."
+                      impact={`Se suma íntegramente al ahorro operativo mensual ajustado por el peso de tu tamaño (×${currentSizeProfile.sectorExtraWeight.toFixed(2)} = ${results.monthlyExtraSavings.toLocaleString('es-ES')} €/mes).`}
+                    />
+                  </div>
                   <span className="font-mono tabular-nums font-bold text-teal-500 whitespace-nowrap shrink-0">
                     {results.monthlyExtraSavings.toLocaleString('es-ES')} €/mes
                   </span>
@@ -744,6 +997,11 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
                 <div className="text-xs font-bold flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
                   <span>Aplicar bonificación Kit Digital</span>
+                  <InfoPopover
+                    title="Bonificación Kit Digital"
+                    meaning={`Ayuda pública tramitada por Asexia que cubre hasta un ${Math.round(config.globalRates.kitDigitalSetupDiscountRate * 100)}% del coste de implantación inicial.`}
+                    impact="Reduce drásticamente la inversión inicial (setup), acortando el plazo de equilibrio en semanas y elevando el ROI porcentual del primer año."
+                  />
                 </div>
                 <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                   Subvenciona hasta el {Math.round(config.globalRates.kitDigitalSetupDiscountRate * 100)}% de la puesta en marcha inicial
@@ -808,6 +1066,20 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
                   </button>
                   <button
                     type="button"
+                    onClick={() => initiateRoiSaveOrDownload('save')}
+                    disabled={isSavingToCrm}
+                    title="Guardar simulación en el sistema CRM"
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition flex items-center gap-1 whitespace-nowrap cursor-pointer ${
+                      isDark
+                        ? 'bg-[#001E3D] border-emerald-500/35 text-emerald-400 hover:text-white'
+                        : 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{isSavingToCrm ? 'Guardando...' : 'Guardar CRM'}</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleDownloadReport}
                     title="Descargar informe ROI completo"
                     className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition flex items-center gap-1 whitespace-nowrap cursor-pointer ${
@@ -835,6 +1107,24 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
                   </button>
                 </div>
               </div>
+
+              {crmSavedNotice && (
+                <div className="mb-2.5 px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-500 text-xs font-semibold flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>{crmSavedNotice}</span>
+                  </span>
+                  {onJumpToDiagnostic && (
+                    <button
+                      type="button"
+                      onClick={onJumpToDiagnostic}
+                      className="underline font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      Completar Diagnóstico ConfIA360 →
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* 3D Transform Wrapper */}
               <div
@@ -1242,7 +1532,227 @@ export const RoiCalculatorSection: React.FC<RoiCalculatorSectionProps> = ({
             })}
           </div>
         </div>
+        {/* Cross-Link Strip to ConfIA360 Diagnostic */}
+        {onJumpToDiagnostic && (
+          <div
+            className={`mt-6 rounded-2xl border p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+              isDark
+                ? 'bg-[#001428] border-[#0284C7]/30 text-white'
+                : 'bg-white border-slate-200 text-slate-900 shadow-sm'
+            }`}
+          >
+            <div className="space-y-1">
+              <div className="text-xs font-extrabold uppercase tracking-wider text-sky-500 flex items-center gap-1.5">
+                <Compass className="w-4 h-4" />
+                <span>Siguiente nivel · Diagnóstico Inteligente ConfIA360</span>
+              </div>
+              <p className={`text-xs sm:text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                Lleva estos resultados económicos al evaluador de 10 áreas para obtener tu índice de madurez
+                digital, DAFO, hoja de ruta 30/90/180 días y entregable completo.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => initiateRoiSaveOrDownload('diagnostic')}
+              className="px-5 py-3 rounded-xl bg-gradient-to-r from-sky-600 to-emerald-500 hover:from-sky-500 hover:to-emerald-400 text-white text-xs font-extrabold flex items-center gap-2 shrink-0 shadow-md cursor-pointer"
+            >
+              <span>Continuar con Diagnóstico ConfIA360</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* 6-Field Business Profile Capture Modal for ROI Persistence */}
+      {isLeadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div
+            className={`w-full max-w-lg rounded-3xl border p-5 sm:p-6 shadow-2xl space-y-4 ${
+              isDark
+                ? 'bg-[#001428] border-[#0284C7]/35 text-white'
+                : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-extrabold uppercase tracking-wider text-emerald-500">
+                  Ficha de Empresa ConfIA360
+                </div>
+                <h3 className="text-lg font-black mt-0.5">
+                  Guarda tu simulación de ROI ({results.annualNetBenefit.toLocaleString('es-ES')} €/año)
+                </h3>
+                <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  Introduce los 6 datos básicos para conservar tu cálculo en el CRM y generar tu informe.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLeadModalOpen(false)}
+                className={`p-1.5 rounded-lg border cursor-pointer ${
+                  isDark ? 'border-slate-700 text-slate-400 hover:text-white' : 'border-slate-200 text-slate-500'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (
+                  !modalDraft.name.trim() ||
+                  !modalDraft.companyName.trim() ||
+                  !modalDraft.postalCode.trim() ||
+                  !modalDraft.phone.trim() ||
+                  !modalDraft.email.trim()
+                ) {
+                  setCrmErrorNotice('Por favor, completa todos los campos obligatorios.');
+                  return;
+                }
+                const ok = await saveRoiSimulationToCrm(modalDraft, pendingActionAfterCapture);
+                if (ok) setIsLeadModalOpen(false);
+              }}
+              className="space-y-3 text-xs"
+            >
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold mb-1">Nombre *</label>
+                  <div className="relative">
+                    <User className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej. Carlos Barrena"
+                      value={modalDraft.name}
+                      onChange={(e) => setModalDraft({ ...modalDraft, name: e.target.value })}
+                      className={`w-full pl-9 pr-3 py-2 rounded-xl border ${
+                        isDark ? 'bg-[#001E3D] border-[#0284C7]/30 text-white' : 'bg-slate-50 border-slate-300'
+                      }`}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-bold mb-1">Empresa *</label>
+                  <div className="relative">
+                    <Briefcase className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej. Mesón Los Olivos"
+                      value={modalDraft.companyName}
+                      onChange={(e) => setModalDraft({ ...modalDraft, companyName: e.target.value })}
+                      className={`w-full pl-9 pr-3 py-2 rounded-xl border ${
+                        isDark ? 'bg-[#001E3D] border-[#0284C7]/30 text-white' : 'bg-slate-50 border-slate-300'
+                      }`}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-bold mb-1">Sector *</label>
+                  <select
+                    value={modalDraft.sectorId}
+                    onChange={(e) =>
+                      setModalDraft({ ...modalDraft, sectorId: e.target.value as RoiSectorId })
+                    }
+                    className={`w-full px-3 py-2 rounded-xl border ${
+                      isDark ? 'bg-[#001E3D] border-[#0284C7]/30 text-white' : 'bg-slate-50 border-slate-300'
+                    }`}
+                  >
+                    {SECTOR_ORDER.map((sid) => (
+                      <option key={sid} value={sid}>
+                        {config.sectors[sid].name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold mb-1">Código postal *</label>
+                  <div className="relative">
+                    <MapPin className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="28901"
+                      value={modalDraft.postalCode}
+                      onChange={(e) => setModalDraft({ ...modalDraft, postalCode: e.target.value })}
+                      className={`w-full pl-9 pr-3 py-2 rounded-xl border font-mono ${
+                        isDark ? 'bg-[#001E3D] border-[#0284C7]/30 text-white' : 'bg-slate-50 border-slate-300'
+                      }`}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-bold mb-1">Teléfono *</label>
+                  <div className="relative">
+                    <Phone className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="tel"
+                      required
+                      placeholder="609 735 753"
+                      value={modalDraft.phone}
+                      onChange={(e) => setModalDraft({ ...modalDraft, phone: e.target.value })}
+                      className={`w-full pl-9 pr-3 py-2 rounded-xl border ${
+                        isDark ? 'bg-[#001E3D] border-[#0284C7]/30 text-white' : 'bg-slate-50 border-slate-300'
+                      }`}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-bold mb-1">Email *</label>
+                  <div className="relative">
+                    <Mail className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="email"
+                      required
+                      placeholder="contacto@empresa.es"
+                      value={modalDraft.email}
+                      onChange={(e) => setModalDraft({ ...modalDraft, email: e.target.value })}
+                      className={`w-full pl-9 pr-3 py-2 rounded-xl border ${
+                        isDark ? 'bg-[#001E3D] border-[#0284C7]/30 text-white' : 'bg-slate-50 border-slate-300'
+                      }`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {crmErrorNotice && (
+                <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-500 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{crmErrorNotice}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsLeadModalOpen(false)}
+                  className={`px-4 py-2 rounded-xl border font-semibold cursor-pointer ${
+                    isDark ? 'border-slate-700 text-slate-300' : 'border-slate-300 text-slate-700'
+                  }`}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingToCrm}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-emerald-500 text-white font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>
+                    {isSavingToCrm
+                      ? 'Guardando...'
+                      : pendingActionAfterCapture === 'download'
+                      ? 'Guardar y Descargar'
+                      : pendingActionAfterCapture === 'diagnostic'
+                      ? 'Guardar e ir a Diagnóstico'
+                      : 'Guardar en CRM'}
+                  </span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

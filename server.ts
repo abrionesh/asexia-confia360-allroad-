@@ -13,7 +13,22 @@ import {
   COMPANY_SIZE_ORDER,
   CTA_ORDER,
   cloneDefaultRoiConfig,
+  calculateRoiResults,
 } from './src/types/roi';
+import {
+  buildDiagnosticEvaluation,
+  createDefaultAreaScores,
+  CrmStoreData,
+  DiagnosticTier,
+} from './src/types/confia360';
+import {
+  buildOutboundCaptaGlobalPayload,
+  loadCrmStore,
+  mapSectorTextToId,
+  mapSizeTextToId,
+  saveCrmStore,
+  upsertClientAndOpportunity,
+} from './crmStore';
 
 dotenv.config();
 
@@ -206,6 +221,146 @@ function saveRoiConfig(config: RoiConfig): void {
 }
 
 let roiConfigStore: RoiConfig = loadRoiConfig();
+let crmStore: CrmStoreData = loadCrmStore(roiConfigStore);
+
+// Reusable CaptaGlobal Outbound Sync Engine (Manual & Auto-Sync + Retry Queue)
+async function executeCaptaGlobalSync(
+  oppId: string,
+  options?: { isAuto?: boolean }
+): Promise<{
+  success: boolean;
+  message: string;
+  opportunity?: (typeof crmStore.opportunities)[number];
+  payload?: ReturnType<typeof buildOutboundCaptaGlobalPayload>;
+}> {
+  const opp = crmStore.opportunities.find((o) => o.id === oppId);
+  if (!opp) {
+    return { success: false, message: 'Oportunidad no encontrada.' };
+  }
+  const client = crmStore.clients.find((c) => c.id === opp.clientId);
+  if (!client) {
+    return { success: false, message: 'Cliente no encontrado.' };
+  }
+
+  const cfg = crmStore.captaGlobalConfig;
+  const targetUrl = `${cfg.endpointUrl.replace(/\/+$/, '')}${
+    cfg.webhookPath.startsWith('/') ? cfg.webhookPath : `/${cfg.webhookPath}`
+  }`;
+  const payload = buildOutboundCaptaGlobalPayload(client, opp);
+  const now = new Date().toISOString();
+
+  let synced = false;
+  let remoteStatus = 0;
+  let remoteMessage = '';
+  let externalLeadId = opp.captaGlobalSync?.externalLeadId;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6500);
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (cfg.apiKey) {
+      headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+      headers['X-API-Key'] = cfg.apiKey;
+    }
+
+    const remoteRes = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    remoteStatus = remoteRes.status;
+
+    const text = await remoteRes.text();
+    if (remoteRes.ok) {
+      synced = true;
+      try {
+        const parsed = JSON.parse(text);
+        externalLeadId =
+          parsed?.id ||
+          parsed?.leadId ||
+          parsed?.opportunityId ||
+          externalLeadId ||
+          `CG-${Date.now().toString().slice(-5)}`;
+      } catch {
+        externalLeadId = externalLeadId || `CG-${Date.now().toString().slice(-5)}`;
+      }
+      remoteMessage = `Sincronizado correctamente con CaptaGlobal (HTTP ${remoteStatus}).`;
+    } else {
+      remoteMessage = `El endpoint remoto respondió HTTP ${remoteStatus}. Paquete JSON guardado y listo para reintento o importación.`;
+    }
+  } catch (err: any) {
+    remoteMessage = `Conexión automática en espera (${err?.message || 'endpoint remoto inaccesible'}). Paquete JSON disponible para exportación.`;
+  }
+
+  const prevRetries = opp.captaGlobalSync?.retryCount || 0;
+  const nextRetryCount = synced ? 0 : prevRetries + 1;
+  const shouldQueueRetry = !synced && nextRetryCount < 3;
+  const backoffMs = nextRetryCount === 1 ? 45_000 : 120_000;
+
+  opp.captaGlobalSync = {
+    externalLeadId,
+    status: synced ? 'synced' : shouldQueueRetry ? 'queued' : 'error',
+    retryCount: nextRetryCount,
+    nextRetryAt: shouldQueueRetry ? new Date(Date.now() + backoffMs).toISOString() : undefined,
+    targetUrl,
+    lastAttemptAt: now,
+    lastSyncedAt: synced ? now : opp.captaGlobalSync?.lastSyncedAt,
+    lastError: synced ? undefined : remoteMessage,
+    payloadSnapshot: payload,
+  };
+
+  if (synced || !options?.isAuto) {
+    opp.communications.unshift({
+      id: `com-cg-${Date.now().toString(36)}`,
+      type: 'sync',
+      direction: 'saliente',
+      summary: synced
+        ? `Sincronizado${options?.isAuto ? ' automáticamente' : ''} con ConfIA360 CaptaGlobal (${externalLeadId}).`
+        : `Intento de traspaso a CaptaGlobal: ${remoteMessage}`,
+      createdAt: now,
+    });
+  }
+
+  opp.updatedAt = now;
+  saveCrmStore(crmStore);
+
+  return {
+    success: synced,
+    message: remoteMessage,
+    opportunity: opp,
+    payload,
+  };
+}
+
+function triggerAutoSyncIfEnabled(oppId: string): void {
+  if (!crmStore.captaGlobalConfig?.autoSyncOnIntake) return;
+  setImmediate(() => {
+    executeCaptaGlobalSync(oppId, { isAuto: true }).catch(() => {
+      // Background errors are captured safely inside opportunity.captaGlobalSync
+    });
+  });
+}
+
+// Background retry loop for queued CaptaGlobal opportunities
+setInterval(() => {
+  if (!crmStore.captaGlobalConfig?.autoSyncOnIntake) return;
+  const nowMs = Date.now();
+  const due = crmStore.opportunities.filter(
+    (o) =>
+      o.captaGlobalSync?.status === 'queued' &&
+      (!o.captaGlobalSync.nextRetryAt || new Date(o.captaGlobalSync.nextRetryAt).getTime() <= nowMs) &&
+      (o.captaGlobalSync.retryCount || 0) < 3
+  );
+  due.slice(0, 3).forEach((opp) => {
+    executeCaptaGlobalSync(opp.id, { isAuto: true }).catch(() => {});
+  });
+}, 45_000);
 
 // In-memory data store with realistic seed data for the Admin Panel
 let bookings: Array<{
@@ -519,6 +674,18 @@ app.post('/api/bookings', (req: Request, res: Response) => {
   bookings.unshift(newBooking);
   realTimeStats.diagnosticRequests += 1;
 
+  // Also register/merge automatically inside Unified CRM
+  const crmResult = upsertClientAndOpportunity(crmStore, roiConfigStore, {
+    name: clientName,
+    companyName: newBooking.companyName,
+    sectorLabel: newBooking.sector,
+    phone,
+    email,
+    source: 'booking-web',
+    note: `Reserva web (${newBooking.date} ${newBooking.time}) · Interés: ${newBooking.serviceInterest}. ${notes || ''}`.trim(),
+  });
+  triggerAutoSyncIfEnabled(crmResult.opportunity.id);
+
   res.status(201).json({
     success: true,
     message: 'Reserva registrada con éxito.',
@@ -585,6 +752,19 @@ app.post('/api/proposals', (req: Request, res: Response) => {
   };
 
   proposals.unshift(newProposal);
+
+  // Also mirror proposal inside Unified CRM
+  const crmPropResult = upsertClientAndOpportunity(crmStore, roiConfigStore, {
+    name,
+    companyName: newProposal.company,
+    sectorLabel: newProposal.sector,
+    phone,
+    email,
+    source: 'proposal-comparator',
+    note: `Comparativa solicitada. Presupuesto actual: ${newProposal.currentCompetitorBudget}. ${newProposal.details}`,
+  });
+  triggerAutoSyncIfEnabled(crmPropResult.opportunity.id);
+
   res.status(201).json({ success: true, proposal: newProposal });
 });
 
@@ -626,6 +806,475 @@ app.post('/api/roi-config/reset', (_req: Request, res: Response) => {
   roiConfigStore = resetConfig;
   saveRoiConfig(resetConfig);
   res.json({ success: true, config: roiConfigStore });
+});
+
+// 6. API: Unified CRM (ROI + Diagnóstico ConfIA360 + Entregables + Propuestas + CaptaGlobal)
+app.get('/api/crm/overview', (_req: Request, res: Response) => {
+  res.json({
+    clients: crmStore.clients,
+    opportunities: crmStore.opportunities,
+    captaGlobalConfig: crmStore.captaGlobalConfig,
+  });
+});
+
+app.post('/api/crm/intake', async (req: Request, res: Response) => {
+  const {
+    name,
+    companyName,
+    sectorId,
+    sectorLabel,
+    companySizeId,
+    postalCode,
+    phone,
+    email,
+    source,
+    opportunityId,
+    diagnosticTier,
+    roiInputs,
+    areaScores,
+    proChecklistKeys,
+    vipFocusGoal,
+    note,
+    deliverable,
+  } = req.body || {};
+
+  if (!name || !email || !phone) {
+    res.status(400).json({ error: 'Nombre, teléfono y email son obligatorios para guardar el estudio.' });
+    return;
+  }
+
+  const result = upsertClientAndOpportunity(crmStore, roiConfigStore, {
+    name: String(name),
+    companyName: String(companyName || `Empresa de ${name}`),
+    sectorId,
+    sectorLabel,
+    companySizeId,
+    postalCode: String(postalCode || ''),
+    phone: String(phone),
+    email: String(email),
+    source: source || 'diagnostico-confia360',
+    opportunityId,
+    diagnosticTier,
+    roiInputs,
+    areaScores,
+    proChecklistKeys,
+    vipFocusGoal,
+    note,
+    deliverable,
+  });
+
+  realTimeStats.diagnosticRequests += 1;
+  triggerAutoSyncIfEnabled(result.opportunity.id);
+
+  res.status(201).json({
+    success: true,
+    client: result.client,
+    opportunity: result.opportunity,
+    isNewClient: result.isNewClient,
+    autoSyncEnabled: Boolean(crmStore.captaGlobalConfig?.autoSyncOnIntake),
+  });
+});
+
+app.patch('/api/crm/opportunities/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const opp = crmStore.opportunities.find((o) => o.id === id);
+  if (!opp) {
+    res.status(404).json({ error: 'Oportunidad no encontrada.' });
+    return;
+  }
+  const client = crmStore.clients.find((c) => c.id === opp.clientId);
+  if (!client) {
+    res.status(404).json({ error: 'Cliente asociado no encontrado.' });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const {
+    clientPatch,
+    stage,
+    assignedOwner,
+    nextFollowUpAt,
+    diagnosticTier,
+    roiInputs,
+    areaScores,
+    proChecklistKeys,
+    vipFocusGoal,
+  } = req.body || {};
+
+  if (clientPatch && typeof clientPatch === 'object') {
+    if (typeof clientPatch.name === 'string' && clientPatch.name.trim()) client.name = clientPatch.name.trim();
+    if (typeof clientPatch.companyName === 'string' && clientPatch.companyName.trim()) {
+      client.companyName = clientPatch.companyName.trim();
+    }
+    if (typeof clientPatch.postalCode === 'string') client.postalCode = clientPatch.postalCode.trim();
+    if (typeof clientPatch.phone === 'string' && clientPatch.phone.trim()) client.phone = clientPatch.phone.trim();
+    if (typeof clientPatch.email === 'string' && clientPatch.email.trim()) client.email = clientPatch.email.trim();
+    if (clientPatch.sectorId && roiConfigStore.sectors[clientPatch.sectorId as RoiSectorId]) {
+      client.sectorId = clientPatch.sectorId;
+      client.sectorLabel = roiConfigStore.sectors[clientPatch.sectorId as RoiSectorId].name;
+    }
+    if (clientPatch.companySizeId && roiConfigStore.companySizes[clientPatch.companySizeId as CompanySizeId]) {
+      client.companySizeId = clientPatch.companySizeId;
+    }
+    client.updatedAt = now;
+  }
+
+  if (stage) opp.stage = stage;
+  if (typeof assignedOwner === 'string') opp.assignedOwner = assignedOwner;
+  if (typeof nextFollowUpAt === 'string') opp.nextFollowUpAt = nextFollowUpAt;
+
+  const sectorDefaults = roiConfigStore.sectors[client.sectorId] || roiConfigStore.sectors.clinicas;
+
+  if (roiInputs && typeof roiInputs === 'object') {
+    const updatedInputs = {
+      ...roiInputs,
+      sectorId: client.sectorId,
+      companySizeId: client.companySizeId,
+    };
+    const recalculated = calculateRoiResults(
+      updatedInputs,
+      sectorDefaults,
+      roiConfigStore.globalRates,
+      roiConfigStore.companySizes
+    );
+    opp.roiSimulation = {
+      inputs: updatedInputs,
+      results: recalculated,
+      updatedAt: now,
+      editedByAdmin: true,
+    };
+    opp.estimatedAnnualValue = recalculated.annualNetBenefit;
+  }
+
+  const nextTier: DiagnosticTier = diagnosticTier || opp.diagnosticTier;
+  opp.diagnosticTier = nextTier;
+
+  if (areaScores || diagnosticTier || proChecklistKeys || vipFocusGoal !== undefined || roiInputs) {
+    const scoresToUse =
+      areaScores ||
+      opp.diagnosticResult?.areaScores ||
+      createDefaultAreaScores(client.sectorId);
+    const checksToUse = proChecklistKeys || opp.diagnosticResult?.proChecklistKeys || [];
+    const goalToUse =
+      vipFocusGoal !== undefined
+        ? vipFocusGoal
+        : opp.diagnosticResult?.vipFocusGoal || 'Escalar captación y automatización en 90 días';
+
+    opp.diagnosticResult = buildDiagnosticEvaluation({
+      sectorId: client.sectorId,
+      companySizeId: client.companySizeId,
+      tier: nextTier,
+      areaScores: scoresToUse,
+      proChecklistKeys: checksToUse,
+      vipFocusGoal: goalToUse,
+      roiResult: opp.roiSimulation?.results || null,
+    });
+  }
+
+  opp.title = `${sectorDefaults.shortName} · ${client.companyName}`;
+  opp.updatedAt = now;
+  opp.communications.unshift({
+    id: `com-edit-${Date.now().toString(36)}`,
+    type: 'nota',
+    direction: 'interno',
+    summary: 'Ficha de oportunidad / ROI / diagnóstico actualizada desde Administración.',
+    createdAt: now,
+  });
+
+  saveCrmStore(crmStore);
+  triggerAutoSyncIfEnabled(opp.id);
+  res.json({ success: true, client, opportunity: opp });
+});
+
+app.post('/api/crm/opportunities/:id/deliverables', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const opp = crmStore.opportunities.find((o) => o.id === id);
+  if (!opp) {
+    res.status(404).json({ error: 'Oportunidad no encontrada.' });
+    return;
+  }
+  const { type, tier, channel, recipient, summary } = req.body || {};
+  const now = new Date().toISOString();
+  const entry = {
+    id: `del-${Date.now().toString(36)}`,
+    type: type || 'dossier-html',
+    tier: tier || opp.diagnosticTier,
+    channel: channel || 'descarga',
+    recipient: recipient || '',
+    summary: summary || 'Entregable generado desde CRM',
+    generatedAt: now,
+  };
+  opp.deliverables.unshift(entry);
+  opp.communications.unshift({
+    id: `com-del-${Date.now().toString(36)}`,
+    type: channel === 'whatsapp' ? 'whatsapp' : channel === 'email' ? 'email' : 'nota',
+    direction: 'saliente',
+    summary: `Entregable (${entry.type} · ${entry.tier.toUpperCase()}) vía ${entry.channel}: ${entry.summary}`,
+    createdAt: now,
+  });
+  opp.updatedAt = now;
+  saveCrmStore(crmStore);
+  res.status(201).json({ success: true, deliverable: entry, opportunity: opp });
+});
+
+app.post('/api/crm/opportunities/:id/proposals', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const opp = crmStore.opportunities.find((o) => o.id === id);
+  if (!opp) {
+    res.status(404).json({ error: 'Oportunidad no encontrada.' });
+    return;
+  }
+  const { title, setupFee, monthlyFee, kitDigitalApplied, servicesIncluded, notes, status } = req.body || {};
+  const now = new Date().toISOString();
+  const proposal = {
+    id: `crmprop-${Date.now().toString(36)}`,
+    title: String(title || `Propuesta ConfIA360 · ${opp.title}`),
+    setupFee: Number(setupFee) || 0,
+    monthlyFee: Number(monthlyFee) || 0,
+    kitDigitalApplied: Boolean(kitDigitalApplied),
+    servicesIncluded: Array.isArray(servicesIncluded) ? servicesIncluded : [],
+    notes: String(notes || ''),
+    status: status || 'borrador',
+    createdAt: now,
+  };
+  opp.proposals.unshift(proposal);
+  if (opp.stage === 'nuevo' || opp.stage === 'diagnostico' || opp.stage === 'roi-enviado') {
+    opp.stage = 'propuesta';
+  }
+  opp.communications.unshift({
+    id: `com-prop-${Date.now().toString(36)}`,
+    type: 'nota',
+    direction: 'interno',
+    summary: `Propuesta creada: "${proposal.title}" (${proposal.monthlyFee} €/mes · Setup ${proposal.setupFee} €).`,
+    createdAt: now,
+  });
+  opp.updatedAt = now;
+  saveCrmStore(crmStore);
+  res.status(201).json({ success: true, proposal, opportunity: opp });
+});
+
+app.patch('/api/crm/opportunities/:id/proposals/:proposalId', (req: Request, res: Response) => {
+  const { id, proposalId } = req.params;
+  const opp = crmStore.opportunities.find((o) => o.id === id);
+  if (!opp) {
+    res.status(404).json({ error: 'Oportunidad no encontrada.' });
+    return;
+  }
+  const prop = opp.proposals.find((p) => p.id === proposalId);
+  if (!prop) {
+    res.status(404).json({ error: 'Propuesta no encontrada.' });
+    return;
+  }
+  if (req.body?.status) prop.status = req.body.status;
+  opp.updatedAt = new Date().toISOString();
+  saveCrmStore(crmStore);
+  res.json({ success: true, proposal: prop, opportunity: opp });
+});
+
+app.post('/api/crm/opportunities/:id/communications', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const opp = crmStore.opportunities.find((o) => o.id === id);
+  if (!opp) {
+    res.status(404).json({ error: 'Oportunidad no encontrada.' });
+    return;
+  }
+  const { type, direction, summary } = req.body || {};
+  if (!summary || !String(summary).trim()) {
+    res.status(400).json({ error: 'El resumen de la comunicación es obligatorio.' });
+    return;
+  }
+  const now = new Date().toISOString();
+  const comm = {
+    id: `com-${Date.now().toString(36)}`,
+    type: type || 'nota',
+    direction: direction || 'saliente',
+    summary: String(summary).trim(),
+    createdAt: now,
+  };
+  opp.communications.unshift(comm);
+  opp.updatedAt = now;
+  saveCrmStore(crmStore);
+  res.status(201).json({ success: true, communication: comm, opportunity: opp });
+});
+
+app.put('/api/crm/captaglobal/config', (req: Request, res: Response) => {
+  const { endpointUrl, webhookPath, apiKey, autoSyncOnIntake } = req.body || {};
+  crmStore.captaGlobalConfig = {
+    endpointUrl:
+      typeof endpointUrl === 'string' && endpointUrl.trim()
+        ? endpointUrl.trim().replace(/\/+$/, '')
+        : crmStore.captaGlobalConfig.endpointUrl,
+    webhookPath:
+      typeof webhookPath === 'string'
+        ? webhookPath.trim()
+        : crmStore.captaGlobalConfig.webhookPath,
+    apiKey: typeof apiKey === 'string' ? apiKey.trim() : crmStore.captaGlobalConfig.apiKey,
+    autoSyncOnIntake:
+      typeof autoSyncOnIntake === 'boolean'
+        ? autoSyncOnIntake
+        : crmStore.captaGlobalConfig.autoSyncOnIntake,
+    updatedAt: new Date().toISOString(),
+  };
+  saveCrmStore(crmStore);
+  res.json({ success: true, captaGlobalConfig: crmStore.captaGlobalConfig });
+});
+
+app.post('/api/crm/opportunities/:id/sync-captaglobal', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const result = await executeCaptaGlobalSync(id, { isAuto: false });
+  if (!result.opportunity) {
+    res.status(404).json({ error: result.message });
+    return;
+  }
+  res.json({
+    success: result.success,
+    message: result.message,
+    opportunity: result.opportunity,
+    payload: result.payload,
+  });
+});
+
+app.post('/api/crm/captaglobal/sync-pending', async (_req: Request, res: Response) => {
+  const targets = crmStore.opportunities.filter(
+    (o) =>
+      o.captaGlobalSync?.status === 'pending' ||
+      o.captaGlobalSync?.status === 'queued' ||
+      o.captaGlobalSync?.status === 'error'
+  );
+
+  let syncedCount = 0;
+  let failedCount = 0;
+
+  for (const opp of targets) {
+    const syncRes = await executeCaptaGlobalSync(opp.id, { isAuto: false });
+    if (syncRes.success) syncedCount += 1;
+    else failedCount += 1;
+  }
+
+  res.json({
+    success: failedCount === 0,
+    total: targets.length,
+    syncedCount,
+    failedCount,
+    opportunities: crmStore.opportunities,
+  });
+});
+
+app.post('/api/crm/captaglobal/test-connection', async (req: Request, res: Response) => {
+  const endpointUrl = String(
+    req.body?.endpointUrl || crmStore.captaGlobalConfig.endpointUrl || ''
+  )
+    .trim()
+    .replace(/\/+$/, '');
+  const apiKey = String(req.body?.apiKey ?? crmStore.captaGlobalConfig.apiKey ?? '').trim();
+
+  if (!endpointUrl) {
+    res.status(400).json({ reachable: false, message: 'URL de CaptaGlobal no especificada.' });
+    return;
+  }
+
+  const startedAt = Date.now();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const headers: Record<string, string> = { Accept: 'application/json, text/html' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+      headers['X-API-Key'] = apiKey;
+    }
+
+    const remoteRes = await fetch(endpointUrl, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startedAt;
+
+    res.json({
+      reachable: remoteRes.status < 500,
+      status: remoteRes.status,
+      latencyMs,
+      targetUrl: endpointUrl,
+      message:
+        remoteRes.status < 400
+          ? `Conexión activa con CaptaGlobal (HTTP ${remoteRes.status} · ${latencyMs} ms).`
+          : `Servidor accesible con respuesta HTTP ${remoteRes.status} (${latencyMs} ms). Verifica la ruta webhook o clave API si procede.`,
+    });
+  } catch (err: any) {
+    const latencyMs = Date.now() - startedAt;
+    res.json({
+      reachable: false,
+      status: 0,
+      latencyMs,
+      targetUrl: endpointUrl,
+      message: `No se pudo alcanzar ${endpointUrl} (${err?.message || 'tiempo agotado'}). La cola automática y exportación CSV/JSON siguen operativas.`,
+    });
+  }
+});
+
+app.post('/api/crm/webhooks/captaglobal', (req: Request, res: Response) => {
+  const rawBody = req.body || {};
+  const list = Array.isArray(rawBody)
+    ? rawBody
+    : Array.isArray(rawBody.leads)
+    ? rawBody.leads
+    : [rawBody];
+
+  const imported: Array<{ client: any; opportunity: any }> = [];
+
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const c = item.client || item;
+    const name = c.name || c.nombre || c.contacto || item.name || item.nombre;
+    const companyName =
+      c.companyName || c.empresa || c.company || item.empresa || `Empresa de ${name || 'CaptaGlobal'}`;
+    const phone = c.phone || c.telefono || c.movil || item.telefono || '';
+    const email = c.email || c.correo || item.email || '';
+    const postalCode = c.postalCode || c.cp || c.codigo_postal || c.codigoPostal || item.cp || '';
+    const rawSector = c.sectorId || c.sector || item.sector || '';
+    const rawSize = c.companySizeId || c.tamano || c.size || 'micro';
+
+    if (!name || (!email && !phone)) continue;
+
+    const sectorId = roiConfigStore.sectors[rawSector as RoiSectorId]
+      ? (rawSector as RoiSectorId)
+      : mapSectorTextToId(String(rawSector));
+
+    const result = upsertClientAndOpportunity(crmStore, roiConfigStore, {
+      name: String(name),
+      companyName: String(companyName),
+      sectorId,
+      companySizeId: mapSizeTextToId(String(rawSize)),
+      postalCode: String(postalCode),
+      phone: String(phone || 'Sin teléfono'),
+      email: String(email || `${String(name).toLowerCase().replace(/[^a-z0-9]/g, '')}@captaglobal.local`),
+      source: 'captaglobal',
+      externalLeadId: String(
+        item.externalId || item.id || item.opportunity?.id || `CG-${Date.now().toString().slice(-5)}`
+      ),
+      note: String(item.notes || item.notas || item.summary || 'Lead importado desde ConfIA360 CaptaGlobal.'),
+    });
+    imported.push({ client: result.client, opportunity: result.opportunity });
+  }
+
+  if (imported.length === 0) {
+    res.status(400).json({
+      error: 'El payload debe incluir al menos nombre y email o teléfono.',
+    });
+    return;
+  }
+
+  res.status(201).json({
+    success: true,
+    importedCount: imported.length,
+    message:
+      imported.length === 1
+        ? 'Lead de CaptaGlobal integrado en el CRM unificado.'
+        : `${imported.length} leads de CaptaGlobal integrados en el CRM unificado.`,
+    client: imported[0].client,
+    opportunity: imported[0].opportunity,
+  });
 });
 
 // Setup Vite Dev Middleware or Static Serving
